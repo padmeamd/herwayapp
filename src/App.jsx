@@ -662,7 +662,7 @@ export default function App() {
         </div>
       </div>
 
-      {isCompact && !isNavigating && (
+      {isCompact && !isNavigating && !showReportModal && (
         <MobileRoutePanel
           snap={mobilePanelSnap}
           onSnapChange={setMobilePanelSnap}
