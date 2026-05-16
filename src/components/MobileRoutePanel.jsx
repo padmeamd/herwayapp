@@ -393,7 +393,8 @@ export default function MobileRoutePanel({
                         onDestinationSelect={onOriginSelect}
                         onClear={onOriginClear}
                         isLoadingRoutes={false}
-                        placeholder="My location in Oxford…"
+                        placeholder="My location…"
+                        showCurrentLocation
                       />
                     </div>
                     <div>

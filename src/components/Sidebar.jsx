@@ -72,7 +72,8 @@ export default function Sidebar({
                   onDestinationSelect={onOriginSelect}
                   onClear={onOriginClear}
                   isLoadingRoutes={false}
-                  placeholder="My location in Oxford..."
+                  placeholder="My location…"
+                  showCurrentLocation
                 />
               </div>
 

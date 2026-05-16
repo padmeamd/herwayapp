@@ -69,6 +69,7 @@ export default function App() {
   const [communityToast, setCommunityToast] = useState(null)
   const [customMarkers, setCustomMarkers] = useState([])
   const [reportLocation, setReportLocation] = useState(null)
+  const [isPickingReportLocation, setIsPickingReportLocation] = useState(false)
   const { activity: liveActivity, dismiss: dismissLiveActivity } = useLiveActivity()
 
   // ── Auth ─────────────────────────────────────────────────────────────────
@@ -321,9 +322,15 @@ export default function App() {
 
   // ── Map click — place warning marker at clicked location ─────────────────
   const handleMapClick = useCallback(({ lat, lng }) => {
+    if (isPickingReportLocation) {
+      setReportLocation({ lat, lng })
+      setIsPickingReportLocation(false)
+      setShowReportModal(true)
+      return
+    }
     setReportLocation({ lat, lng })
     setShowReportModal(true)
-  }, [])
+  }, [isPickingReportLocation])
 
   // ── Incident report ───────────────────────────────────────────────────────
   const handleIncidentSubmit = (report) => {
@@ -429,7 +436,10 @@ export default function App() {
 
       {/* Report */}
       <button
-        onClick={() => setShowReportModal(true)}
+        onClick={() => {
+          if (userLocation) setReportLocation(loc => loc ?? { lat: userLocation.lat, lng: userLocation.lng })
+          setShowReportModal(true)
+        }}
         title="Report an incident"
         className={`${isCompact ? 'w-12 h-12' : 'w-11 h-11'} rounded-2xl glass border border-white/10 flex items-center justify-center text-xl hover:border-warning/40 hover:bg-warning/10 transition-all active:scale-95 touch-manipulation`}
       >
@@ -440,6 +450,38 @@ export default function App() {
 
   return (
     <div className="h-[100dvh] w-screen overflow-hidden bg-bg flex flex-col">
+
+      {/* ── Pick-location banner ─────────────────────────────────────────── */}
+      <AnimatePresence>
+        {isPickingReportLocation && (
+          <motion.div
+            className="absolute top-0 left-0 right-0 z-[1350] flex items-center gap-3 px-5"
+            initial={{ y: -80 }} animate={{ y: 0 }} exit={{ y: -80 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+            style={{
+              paddingTop: 'max(env(safe-area-inset-top), 16px)',
+              paddingBottom: '14px',
+              background: 'linear-gradient(135deg, rgba(251,191,36,0.95), rgba(245,158,11,0.95))',
+              backdropFilter: 'blur(12px)',
+            }}
+          >
+            <span className="text-2xl">📍</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-black font-black text-sm leading-tight">Tap anywhere on the map</p>
+              <p className="text-black/70 text-xs font-medium">Place the incident pin at the exact location</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setIsPickingReportLocation(false); setShowReportModal(true) }}
+              className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-black/70 font-black text-sm active:scale-90 touch-manipulation"
+              style={{ background: 'rgba(0,0,0,0.15)' }}
+              aria-label="Cancel"
+            >
+              ✕
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Reroute alert banner ──────────────────────────────────────────── */}
       <AnimatePresence>
@@ -515,14 +557,17 @@ export default function App() {
               onRouteSelect={handleRouteSelect}
               onUnsafeDetail={handleRouteSelect}
               onStartJourney={handleStartJourney}
-              onReport={() => setShowReportModal(true)}
+              onReport={() => {
+                if (userLocation) setReportLocation(loc => loc ?? { lat: userLocation.lat, lng: userLocation.lng })
+                setShowReportModal(true)
+              }}
               onToggleSafeSpaces={() => setShowSafeSpaces(v => !v)}
             />
           </div>
         )}
 
         {/* Map — isolation:isolate keeps Leaflet's internal z-indices from competing with fixed UI overlays */}
-        <div className={`flex-1 relative min-w-0 min-h-0 isolate ${isNavigating ? 'nav-map-fullscreen' : ''}`}>
+        <div className={`flex-1 relative min-w-0 min-h-0 isolate ${isNavigating ? 'nav-map-fullscreen' : ''} ${isPickingReportLocation ? '[&_.leaflet-container]:!cursor-crosshair' : ''}`}>
           <MapView
             userLocation={userLocation}
             origin={origin}
@@ -690,10 +735,14 @@ export default function App() {
 
       {/* ── Modals ────────────────────────────────────────────────────────── */}
       <ReportModal
-        visible={showReportModal}
-        onClose={() => { setShowReportModal(false); setReportLocation(null) }}
+        visible={showReportModal && !isPickingReportLocation}
+        onClose={() => { setShowReportModal(false); setReportLocation(null); setIsPickingReportLocation(false) }}
         onSubmit={handleIncidentSubmit}
         reportLocation={reportLocation}
+        onPickLocation={() => {
+          setShowReportModal(false)
+          setIsPickingReportLocation(true)
+        }}
       />
 
       <EmergencyOverlay
