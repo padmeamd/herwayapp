@@ -20,7 +20,7 @@ export default function NavigationHUD({
     <>
       {/* Top status pill */}
       <motion.div
-        className="absolute left-0 right-0 z-[35] flex justify-center pointer-events-none px-4"
+        className="nav-hud-status absolute left-0 right-0 z-[35] flex justify-center pointer-events-none px-4"
         style={{ top: 'max(env(safe-area-inset-top), 56px)' }}
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -45,7 +45,7 @@ export default function NavigationHUD({
 
       {/* Right floating controls */}
       <motion.div
-        className="absolute right-3 z-[35] flex flex-col gap-2"
+        className="nav-hud-controls absolute right-3 z-[35] flex flex-col gap-2"
         style={{ bottom: 'calc(220px + env(safe-area-inset-bottom))' }}
         initial={{ opacity: 0, x: 12 }}
         animate={{ opacity: 1, x: 0 }}
@@ -80,7 +80,7 @@ export default function NavigationHUD({
 
       {/* Compact progress chip (visible when panel collapsed on mobile) */}
       <motion.div
-        className="absolute left-3 z-[35] pointer-events-none md:hidden"
+        className="nav-hud-progress absolute left-3 z-[35] pointer-events-none lg:hidden"
         style={{ bottom: 'calc(200px + env(safe-area-inset-bottom))' }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}

@@ -8,12 +8,14 @@ import SafetySettings from './components/SafetySettings'
 import AuthModal from './components/AuthModal'
 import NavigationPanel from './components/NavigationPanel'
 import NavigationHUD from './components/NavigationHUD'
-import RouteJourneyCard from './components/RouteJourneyCard'
+import MobileRoutePanel from './components/MobileRoutePanel'
 import UnsafeRouteConfirm from './components/UnsafeRouteConfirm'
 import UnsafeRouteDetailPanel from './components/UnsafeRouteDetailPanel'
 import { useGeolocation } from './hooks/useGeolocation'
 import { useNavigation } from './hooks/useNavigation'
 import { useLiveActivity } from './hooks/useLiveActivity'
+import { useBreakpoint } from './hooks/useBreakpoint'
+import { useBodyScrollLock } from './hooks/useBodyScrollLock'
 import { calculateRoutes, validateLocations } from './services/routingService'
 import {
   getOrCreateTopic, loadContactName,
@@ -58,7 +60,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [activeAlert, setActiveAlert] = useState(null)
   const [routeError, setRouteError] = useState(null)
-  const [mobileSheetOpen, setMobileSheetOpen] = useState(false)
+  /** @type {'hidden' | 'half' | 'full'} */
+  const [mobilePanelSnap, setMobilePanelSnap] = useState('hidden')
   const [unsafeDetailIndex, setUnsafeDetailIndex] = useState(null)
   const [showRouteOverview, setShowRouteOverview] = useState(false)
 
@@ -142,7 +145,6 @@ export default function App() {
     const from = origin ?? userLocation
     if (!from) return
     setIsNavigating(false)
-    setMobileSheetOpen(true)
     await calcRoutes(from, place)
   }, [userLocation, origin]) // eslint-disable-line
 
@@ -160,7 +162,7 @@ export default function App() {
 
   const handleRouteSelect = useCallback((index) => {
     setSelectedRouteIndex(index)
-    setMobileSheetOpen(false)
+    setMobilePanelSnap('hidden')
     const safety = safetyScores[index]
     if (safety?.safetyClass === 'unsafe' && !safety?.isRecommended) {
       setUnsafeDetailIndex(index)
@@ -215,7 +217,7 @@ export default function App() {
   const beginNavigation = () => {
     setShowRouteOverview(false)
     setUnsafeDetailIndex(null)
-    setMobileSheetOpen(false)
+    setMobilePanelSnap('hidden')
     setShowUnsafeConfirm(false)
     setIsNavigating(true)
   }
@@ -252,7 +254,7 @@ export default function App() {
     setIsNavigating(false)
     setShowRouteOverview(false)
     setActiveAlert(null)
-    setMobileSheetOpen(false)
+    setMobilePanelSnap('hidden')
   }
 
   const handleRerouteToSafe = () => {
@@ -362,30 +364,22 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [emergencyMode])
 
-  // ── Responsive ────────────────────────────────────────────────────────────
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
-  useEffect(() => {
-    const handler = () => setIsMobile(window.innerWidth < 768)
-    window.addEventListener('resize', handler)
-    return () => window.removeEventListener('resize', handler)
-  }, [])
+  // ── Responsive (matchMedia — updates on resize & orientation) ─────────────
+  const { isMobile, isDesktop, isCompact } = useBreakpoint()
+  useBodyScrollLock(isCompact && (mobilePanelSnap === 'half' || mobilePanelSnap === 'full'))
 
-  const floatingControlsClass = isMobile
-    ? 'absolute right-3 flex flex-col gap-2 z-20'
+  const floatingControlsClass = isCompact
+    ? 'absolute right-3 flex flex-col gap-2 z-20 floating-controls-mobile'
     : 'absolute top-4 right-4 flex flex-col gap-2 z-20'
-
-  const floatingControlsStyle = isMobile
-    ? { bottom: routes.length && !isNavigating ? 'calc(280px + env(safe-area-inset-bottom))' : 'calc(5.5rem + env(safe-area-inset-bottom))' }
-    : undefined
 
   // ── Floating controls component ───────────────────────────────────────────
   const FloatingControls = () => (
-    <div className={floatingControlsClass} style={floatingControlsStyle}>
+    <div className={floatingControlsClass}>
       {/* Shield / emergency — triple-click */}
       <button
         onClick={handleEmergencyClick}
         title="Triple-click to activate emergency mode"
-        className="w-12 h-12 md:w-11 md:h-11 rounded-2xl glass border border-safe/30 flex items-center justify-center text-xl hover:border-safe/60 hover:bg-safe/10 transition-all active:scale-95 touch-manipulation"
+        className={`${isCompact ? 'w-12 h-12' : 'w-11 h-11'} rounded-2xl glass border border-safe/30 flex items-center justify-center text-xl hover:border-safe/60 hover:bg-safe/10 transition-all active:scale-95 touch-manipulation`}
       >
         ✦
       </button>
@@ -394,7 +388,7 @@ export default function App() {
       <button
         onClick={() => setShowSettings(true)}
         title="Emergency alert settings"
-        className="w-12 h-12 md:w-11 md:h-11 rounded-2xl glass border border-white/10 flex items-center justify-center text-lg hover:border-primary/30 hover:bg-primary/5 transition-all active:scale-95 touch-manipulation"
+        className={`${isCompact ? 'w-12 h-12' : 'w-11 h-11'} rounded-2xl glass border border-white/10 flex items-center justify-center text-lg hover:border-primary/30 hover:bg-primary/5 transition-all active:scale-95 touch-manipulation`}
       >
         🔔
       </button>
@@ -402,7 +396,7 @@ export default function App() {
       {/* Auth */}
       <button
         onClick={() => !user && setShowAuthModal(true)}
-        className="w-11 h-11 rounded-2xl glass border border-white/10 flex items-center justify-center text-lg hover:border-white/20 transition-all active:scale-95"
+        className={`${isCompact ? 'w-12 h-12' : 'w-11 h-11'} rounded-2xl glass border border-white/10 flex items-center justify-center text-lg hover:border-white/20 transition-all active:scale-95 touch-manipulation`}
         title={user ? `Signed in as ${user.email}` : 'Sign in'}
       >
         {user ? '✓' : '👤'}
@@ -412,7 +406,7 @@ export default function App() {
       <button
         onClick={() => setShowSafeSpaces(v => !v)}
         title={showSafeSpaces ? 'Hide safe spaces' : 'Show safe spaces'}
-        className={`w-11 h-11 rounded-2xl border flex items-center justify-center text-xl transition-all active:scale-95 ${
+        className={`${isCompact ? 'w-12 h-12' : 'w-11 h-11'} rounded-2xl border flex items-center justify-center text-xl transition-all active:scale-95 touch-manipulation ${
           showSafeSpaces
             ? 'border-safe/50 bg-safe/15 hover:bg-safe/25'
             : 'glass border-white/10 hover:border-white/20'
@@ -425,7 +419,7 @@ export default function App() {
       <button
         onClick={() => setShowReportModal(true)}
         title="Report an incident"
-        className="w-11 h-11 rounded-2xl glass border border-white/10 flex items-center justify-center text-xl hover:border-warning/40 hover:bg-warning/10 transition-all active:scale-95"
+        className={`${isCompact ? 'w-12 h-12' : 'w-11 h-11'} rounded-2xl glass border border-white/10 flex items-center justify-center text-xl hover:border-warning/40 hover:bg-warning/10 transition-all active:scale-95 touch-manipulation`}
       >
         ⚠️
       </button>
@@ -451,9 +445,9 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* ── Navigation banner ─────────────────────────────────────────────── */}
+      {/* ── Navigation banner (desktop / tablet landscape) ───────────────── */}
       <AnimatePresence>
-        {isNavigating && !activeAlert && (
+        {isNavigating && !activeAlert && !isMobile && (
           <motion.div
             className="absolute top-0 left-0 right-0 z-30 flex items-center gap-3 px-5 py-3"
             initial={{ y: -60 }} animate={{ y: 0 }} exit={{ y: -60 }}
@@ -487,8 +481,8 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden relative">
 
         {/* Desktop sidebar */}
-        {!isMobile && !isNavigating && (
-          <div className="w-80 flex-shrink-0 glass border-r border-white/5 z-10 overflow-hidden">
+        {isDesktop && !isNavigating && (
+          <div className="app-sidebar flex-shrink-0 glass border-r border-white/5 z-10 overflow-hidden flex flex-col">
             <Sidebar
               userLocation={userLocation}
               origin={origin}
@@ -516,7 +510,7 @@ export default function App() {
         )}
 
         {/* Map */}
-        <div className={`flex-1 relative ${isNavigating ? 'nav-map-fullscreen' : ''}`}>
+        <div className={`flex-1 relative min-w-0 min-h-0 ${isNavigating ? 'nav-map-fullscreen' : ''}`}>
           <MapView
             userLocation={userLocation}
             origin={origin}
@@ -538,7 +532,7 @@ export default function App() {
             onRouteClick={handleRouteSelect}
             onUnsafeRouteClick={handleRouteSelect}
             onMapClick={handleMapClick}
-            isMobile={isMobile}
+            isMobile={isCompact}
           />
 
           <AnimatePresence>
@@ -580,7 +574,7 @@ export default function App() {
           {!isNavigating && <FloatingControls />}
 
           {/* Route comparison legend */}
-          {routes.length > 0 && !isNavigating && !isMobile && (
+          {routes.length > 0 && !isNavigating && isDesktop && (
             <div className="absolute top-20 left-4 z-20 glass max-w-[200px] border border-white/10 rounded-2xl px-3 py-2.5 space-y-1.5 shadow-lg">
               <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Route safety</p>
               <div className="flex items-center gap-2">
@@ -632,7 +626,9 @@ export default function App() {
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 16 }}
-                className="absolute bottom-8 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-primary/20 border border-primary/40 backdrop-blur-sm shadow-xl whitespace-nowrap"
+                className={`absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-primary/20 border border-primary/40 backdrop-blur-sm shadow-xl max-w-[90vw] ${
+                  isCompact && routes.length ? 'bottom-[calc(var(--herway-journey-height)+var(--herway-safe-bottom)+1rem)]' : 'bottom-8'
+                }`}
               >
                 <span className="text-lg">🔔</span>
                 <div>
@@ -643,100 +639,58 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          {!isNavigating && !isMobile && (
+          {!isNavigating && isDesktop && (
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
               <p className="text-gray-700 text-[10px] text-center">
                 Tap map to report · Green = safest · Red = active alerts
               </p>
             </div>
           )}
-
-          <AnimatePresence>
-            {routes.length > 0 && !isNavigating && (
-              <RouteJourneyCard
-                routes={routes}
-                safetyScores={safetyScores}
-                selectedRouteIndex={selectedRouteIndex}
-                route={selectedRoute}
-                safety={selectedSafety}
-                destination={destination}
-                isMobile={isMobile}
-                onRouteSelect={handleRouteSelect}
-                onStartJourney={handleStartJourney}
-                onViewUnsafeDetail={handleViewUnsafeDetail}
-                onExpandDetails={() => setMobileSheetOpen(true)}
-              />
-            )}
-          </AnimatePresence>
-
-          {/* Mobile floating search */}
-          {isMobile && !isNavigating && (
-            <div
-              className={`absolute left-4 right-16 z-20 ${routes.length > 0 ? 'top-2' : 'top-4'}`}
-              style={{ paddingTop: 'max(env(safe-area-inset-top), 0px)' }}
-            >
-              <div
-                className={`glass border border-white/10 rounded-2xl flex items-center gap-3 cursor-pointer shadow-lg touch-manipulation ${
-                  routes.length > 0 ? 'px-3 py-2' : 'px-4 py-3'
-                }`}
-                onClick={() => setMobileSheetOpen(true)}
-              >
-                <svg className="w-4 h-4 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                <span className={`text-sm flex-1 truncate ${destination ? 'text-white font-medium' : 'text-gray-500'}`}>
-                  {destination
-                    ? `${origin?.name ?? 'My Location'} → ${destination.name}`
-                    : 'Where are you going?'}
-                </span>
-              </div>
-            </div>
-          )}
         </div>
-
-        {/* Mobile bottom sheet */}
-        {isMobile && (
-          <AnimatePresence>
-            {mobileSheetOpen && (
-              <motion.div
-                className="absolute bottom-0 left-0 right-0 z-30 bg-surface border-t border-white/5 rounded-t-3xl mobile-sheet"
-                style={{ maxHeight: 'min(88dvh, 720px)' }}
-                initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              >
-                <div className="flex justify-center py-3 cursor-pointer" onClick={() => setMobileSheetOpen(false)}>
-                  <div className="w-10 h-1 bg-gray-700 rounded-full" />
-                </div>
-                <div className="overflow-y-auto overscroll-contain" style={{ maxHeight: 'calc(min(88dvh, 720px) - 44px)' }}>
-                  <Sidebar
-                    userLocation={userLocation}
-                    origin={origin}
-                    destination={destination}
-                    routes={routes}
-                    safetyScores={safetyScores}
-                    selectedRouteIndex={selectedRouteIndex}
-                    isLoadingRoutes={isLoadingRoutes}
-                    routeError={routeError}
-                    incidents={incidents}
-                    safeSpaces={safeSpaces}
-                    showSafeSpaces={showSafeSpaces}
-                    onOriginSelect={handleOriginSelect}
-                    onOriginClear={handleOriginClear}
-                    onDestinationSelect={(p) => { handleDestinationSelect(p); setMobileSheetOpen(false) }}
-                    onDestinationClear={handleDestinationClear}
-                    onSwap={handleSwap}
-                    onRouteSelect={handleRouteSelect}
-                    onUnsafeDetail={handleRouteSelect}
-                    onStartJourney={handleStartJourney}
-                    onReport={() => { setMobileSheetOpen(false); setShowReportModal(true) }}
-                    onToggleSafeSpaces={() => setShowSafeSpaces(v => !v)}
-                  />
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        )}
       </div>
+
+      {isCompact && !isNavigating && (
+        <MobileRoutePanel
+          snap={mobilePanelSnap}
+          onSnapChange={setMobilePanelSnap}
+          userLocation={userLocation}
+          origin={origin}
+          destination={destination}
+          routes={routes}
+          safetyScores={safetyScores}
+          selectedRouteIndex={selectedRouteIndex}
+          isLoadingRoutes={isLoadingRoutes}
+          routeError={routeError}
+          onOriginSelect={handleOriginSelect}
+          onOriginClear={handleOriginClear}
+          onDestinationSelect={handleDestinationSelect}
+          onDestinationClear={handleDestinationClear}
+          onSwap={handleSwap}
+          onRouteSelect={handleRouteSelect}
+          onUnsafeDetail={handleRouteSelect}
+          onStartJourney={handleStartJourney}
+          onViewUnsafeDetail={handleViewUnsafeDetail}
+        />
+      )}
+
+      {isCompact && isNavigating && destination && (
+        <motion.button
+          type="button"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="fixed z-[34] left-4 right-4 mx-auto max-w-sm rounded-full glass border border-white/15 px-4 py-2.5 flex items-center justify-center gap-2 touch-manipulation shadow-lg"
+          style={{ bottom: 'calc(200px + env(safe-area-inset-bottom))' }}
+          onClick={() => {
+            setIsNavigating(false)
+            setMobilePanelSnap('half')
+          }}
+        >
+          <span className="text-sm">🛣️</span>
+          <span className="text-white text-xs font-semibold truncate">
+            Edit route · {destination.name}
+          </span>
+        </motion.button>
+      )}
 
       {/* ── Modals ────────────────────────────────────────────────────────── */}
       <ReportModal
@@ -785,3 +739,4 @@ export default function App() {
     </div>
   )
 }
+

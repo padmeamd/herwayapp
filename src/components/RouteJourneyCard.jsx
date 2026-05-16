@@ -63,7 +63,7 @@ export default function RouteJourneyCard({
       transition={{ type: 'spring', stiffness: 340, damping: 32 }}
     >
       <motion.div
-        className="pointer-events-auto mx-3 rounded-t-3xl md:rounded-3xl md:mx-auto md:max-w-lg shadow-2xl border overflow-hidden"
+        className="pointer-events-auto mx-3 rounded-t-3xl shadow-2xl border overflow-hidden route-journey-card-inner"
         style={{
           borderColor: color + '55',
           background: 'linear-gradient(180deg, rgba(17,24,39,0.98) 0%, rgba(8,12,20,0.99) 100%)',
@@ -85,15 +85,15 @@ export default function RouteJourneyCard({
           transition={{ duration: 2.5, repeat: Infinity }}
         />
 
-        <motion.div
-          className="flex justify-center py-2 cursor-grab active:cursor-grabbing md:hidden"
+        <div
+          className="flex justify-center py-2 cursor-grab active:cursor-grabbing lg:hidden"
           onClick={() => setExpanded(v => !v)}
         >
           <div className="w-10 h-1 bg-gray-600 rounded-full" />
-        </motion.div>
+        </div>
 
         {/* Route switcher */}
-        <div className="px-3 pb-2 flex gap-2">
+        <div className="px-3 pb-2 flex gap-2 flex-shrink-0">
           {routes.map((_, i) => {
             const s = safetyScores[i]
             const safe = s?.isRecommended
