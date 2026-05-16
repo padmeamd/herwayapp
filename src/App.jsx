@@ -7,7 +7,10 @@ import EmergencyOverlay from './components/EmergencyOverlay'
 import SafetySettings from './components/SafetySettings'
 import AuthModal from './components/AuthModal'
 import NavigationPanel from './components/NavigationPanel'
+import NavigationHUD from './components/NavigationHUD'
+import RouteJourneyCard from './components/RouteJourneyCard'
 import UnsafeRouteConfirm from './components/UnsafeRouteConfirm'
+import UnsafeRouteDetailPanel from './components/UnsafeRouteDetailPanel'
 import { useGeolocation } from './hooks/useGeolocation'
 import { useNavigation } from './hooks/useNavigation'
 import { useLiveActivity } from './hooks/useLiveActivity'
@@ -56,6 +59,8 @@ export default function App() {
   const [activeAlert, setActiveAlert] = useState(null)
   const [routeError, setRouteError] = useState(null)
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false)
+  const [unsafeDetailIndex, setUnsafeDetailIndex] = useState(null)
+  const [showRouteOverview, setShowRouteOverview] = useState(false)
 
   // ── Community / live activity state ──────────────────────────────────────
   const [communityToast, setCommunityToast] = useState(null)
@@ -122,11 +127,13 @@ export default function App() {
     setIsLoadingRoutes(true)
     setRoutes([])
     setSafetyScores([])
-    setSelectedRouteIndex(0)
-    const result = await calculateRoutes(from, to)
-    const trimmed = result.slice(0, 3)
-    setRoutes(trimmed)
-    setSafetyScores(analyzeRoutes(trimmed, { incidents, safeSpaces }))
+    setUnsafeDetailIndex(null)
+    const result = await calculateRoutes(from, to, { incidents, safeSpaces })
+    setRoutes(result)
+    const scores = analyzeRoutes(result, { incidents, safeSpaces })
+    setSafetyScores(scores)
+    const recIdx = scores.findIndex(s => s?.isRecommended)
+    setSelectedRouteIndex(recIdx >= 0 ? recIdx : 0)
     setIsLoadingRoutes(false)
   }
 
@@ -146,9 +153,21 @@ export default function App() {
     setSelectedRouteIndex(0)
     setIsNavigating(false)
     setShowUnsafeConfirm(false)
+    setUnsafeDetailIndex(null)
     setActiveAlert(null)
     setRouteError(null)
   }
+
+  const handleRouteSelect = useCallback((index) => {
+    setSelectedRouteIndex(index)
+    setMobileSheetOpen(false)
+    const safety = safetyScores[index]
+    if (safety?.safetyClass === 'unsafe' && !safety?.isRecommended) {
+      setUnsafeDetailIndex(index)
+    } else {
+      setUnsafeDetailIndex(null)
+    }
+  }, [safetyScores])
 
   const handleOriginSelect = async (place) => {
     setOrigin(place)
@@ -179,28 +198,38 @@ export default function App() {
   const isUnsafeRoute = selectedSafety?.safetyClass === 'unsafe' && !selectedSafety?.isRecommended
   const selectedRoute = routes[selectedRouteIndex]
 
+  const handleViewUnsafeDetail = useCallback(() => {
+    if (isUnsafeRoute) setUnsafeDetailIndex(selectedRouteIndex)
+  }, [isUnsafeRoute, selectedRouteIndex])
+
   const navigation = useNavigation({
     route: selectedRoute,
     active: isNavigating,
     isUnsafeRoute,
+    userLocation,
+    incidents,
   })
 
   const recommendedRouteIndex = safetyScores.findIndex(s => s?.isRecommended)
 
   const beginNavigation = () => {
-    setIsNavigating(true)
+    setShowRouteOverview(false)
+    setUnsafeDetailIndex(null)
     setMobileSheetOpen(false)
     setShowUnsafeConfirm(false)
+    setIsNavigating(true)
   }
 
-  const handleStartJourney = () => {
-    if (!routes.length) return
+  const handleStartRoute = () => {
+    if (!routes.length || !selectedRoute) return
     if (isUnsafeRoute) {
       setShowUnsafeConfirm(true)
       return
     }
     beginNavigation()
   }
+
+  const handleStartJourney = handleStartRoute
 
   const handleUnsafeConfirm = () => {
     setShowUnsafeConfirm(false)
@@ -209,24 +238,32 @@ export default function App() {
 
   const handleUseSafeRoute = () => {
     setShowUnsafeConfirm(false)
+    setUnsafeDetailIndex(null)
     if (recommendedRouteIndex >= 0) {
       setSelectedRouteIndex(recommendedRouteIndex)
     }
   }
 
+  useEffect(() => {
+    if (isNavigating) navigation.requestRecenter()
+  }, [isNavigating]) // eslint-disable-line
+
   const handleEndNavigation = () => {
     setIsNavigating(false)
+    setShowRouteOverview(false)
     setActiveAlert(null)
     setMobileSheetOpen(false)
   }
 
   const handleRerouteToSafe = () => {
     navigation.dismissSafetyUpdate()
-    if (recommendedRouteIndex >= 0 && recommendedRouteIndex !== selectedRouteIndex) {
-      setSelectedRouteIndex(recommendedRouteIndex)
-      setActiveAlert('Rerouting to HerWay recommended safe route')
-      setTimeout(() => setActiveAlert(null), 4000)
+    if (recommendedRouteIndex < 0) return
+    setSelectedRouteIndex(recommendedRouteIndex)
+    if (isNavigating) {
+      navigation.requestRecenter()
     }
+    setActiveAlert('Rerouting to HerWay recommended safe route')
+    setTimeout(() => setActiveAlert(null), 4000)
   }
 
   // ── Emergency: triple-click + real ntfy.sh alert ──────────────────────────
@@ -333,14 +370,22 @@ export default function App() {
     return () => window.removeEventListener('resize', handler)
   }, [])
 
+  const floatingControlsClass = isMobile
+    ? 'absolute right-3 flex flex-col gap-2 z-20'
+    : 'absolute top-4 right-4 flex flex-col gap-2 z-20'
+
+  const floatingControlsStyle = isMobile
+    ? { bottom: routes.length && !isNavigating ? 'calc(280px + env(safe-area-inset-bottom))' : 'calc(5.5rem + env(safe-area-inset-bottom))' }
+    : undefined
+
   // ── Floating controls component ───────────────────────────────────────────
   const FloatingControls = () => (
-    <div className="absolute top-4 right-4 flex flex-col gap-2 z-20">
+    <div className={floatingControlsClass} style={floatingControlsStyle}>
       {/* Shield / emergency — triple-click */}
       <button
         onClick={handleEmergencyClick}
         title="Triple-click to activate emergency mode"
-        className="w-11 h-11 rounded-2xl glass border border-safe/30 flex items-center justify-center text-xl hover:border-safe/60 hover:bg-safe/10 transition-all active:scale-95"
+        className="w-12 h-12 md:w-11 md:h-11 rounded-2xl glass border border-safe/30 flex items-center justify-center text-xl hover:border-safe/60 hover:bg-safe/10 transition-all active:scale-95 touch-manipulation"
       >
         ✦
       </button>
@@ -349,7 +394,7 @@ export default function App() {
       <button
         onClick={() => setShowSettings(true)}
         title="Emergency alert settings"
-        className="w-11 h-11 rounded-2xl glass border border-white/10 flex items-center justify-center text-lg hover:border-primary/30 hover:bg-primary/5 transition-all active:scale-95"
+        className="w-12 h-12 md:w-11 md:h-11 rounded-2xl glass border border-white/10 flex items-center justify-center text-lg hover:border-primary/30 hover:bg-primary/5 transition-all active:scale-95 touch-manipulation"
       >
         🔔
       </button>
@@ -388,7 +433,7 @@ export default function App() {
   )
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-bg flex flex-col">
+    <div className="h-[100dvh] w-screen overflow-hidden bg-bg flex flex-col">
 
       {/* ── Reroute alert banner ──────────────────────────────────────────── */}
       <AnimatePresence>
@@ -461,7 +506,8 @@ export default function App() {
               onDestinationSelect={handleDestinationSelect}
               onDestinationClear={handleDestinationClear}
               onSwap={handleSwap}
-              onRouteSelect={setSelectedRouteIndex}
+              onRouteSelect={handleRouteSelect}
+              onUnsafeDetail={handleRouteSelect}
               onStartJourney={handleStartJourney}
               onReport={() => setShowReportModal(true)}
               onToggleSafeSpaces={() => setShowSafeSpaces(v => !v)}
@@ -470,7 +516,7 @@ export default function App() {
         )}
 
         {/* Map */}
-        <div className="flex-1 relative">
+        <div className={`flex-1 relative ${isNavigating ? 'nav-map-fullscreen' : ''}`}>
           <MapView
             userLocation={userLocation}
             origin={origin}
@@ -485,37 +531,57 @@ export default function App() {
             isNavigating={isNavigating}
             navPosition={navigation.position}
             navProgress={navigation.progress}
+            navBearing={navigation.bearing}
+            recenterRequest={navigation.recenterRequest}
+            showRouteOverview={showRouteOverview}
             isUnsafeRoute={isUnsafeRoute}
-            onRouteClick={setSelectedRouteIndex}
+            onRouteClick={handleRouteSelect}
+            onUnsafeRouteClick={handleRouteSelect}
             onMapClick={handleMapClick}
+            isMobile={isMobile}
           />
 
           <AnimatePresence>
             {isNavigating && (
-              <NavigationPanel
-                destination={destination}
-                route={selectedRoute}
-                isUnsafeRoute={isUnsafeRoute}
-                currentStep={navigation.currentStep}
-                nextStep={navigation.nextStep}
-                stepIndex={navigation.stepIndex}
-                totalSteps={navigation.steps.length}
-                progress={navigation.progress}
-                distanceRemaining={navigation.distanceRemaining}
-                etaSeconds={navigation.etaSeconds}
-                safetyUpdate={navigation.safetyUpdate}
-                onDismissSafetyUpdate={navigation.dismissSafetyUpdate}
-                onEnd={handleEndNavigation}
-                onReroute={handleRerouteToSafe}
-              />
+              <>
+                <NavigationHUD
+                  isUnsafeRoute={isUnsafeRoute}
+                  progress={navigation.progress}
+                  etaSeconds={navigation.etaSeconds}
+                  distanceRemaining={navigation.distanceRemaining}
+                  destination={destination}
+                  showOverview={showRouteOverview}
+                  onToggleOverview={() => setShowRouteOverview(v => !v)}
+                  onRecenter={navigation.requestRecenter}
+                  onEnd={handleEndNavigation}
+                />
+                <NavigationPanel
+                  destination={destination}
+                  route={selectedRoute}
+                  isUnsafeRoute={isUnsafeRoute}
+                  currentStep={navigation.currentStep}
+                  nextStep={navigation.nextStep}
+                  stepIndex={navigation.stepIndex}
+                  steps={navigation.steps}
+                  progress={navigation.progress}
+                  distanceRemaining={navigation.distanceRemaining}
+                  etaSeconds={navigation.etaSeconds}
+                  safetyUpdate={navigation.safetyUpdate}
+                  isComplete={navigation.isComplete}
+                  phase={navigation.phase}
+                  onDismissSafetyUpdate={navigation.dismissSafetyUpdate}
+                  onEnd={handleEndNavigation}
+                  onReroute={handleRerouteToSafe}
+                />
+              </>
             )}
           </AnimatePresence>
 
-          <FloatingControls />
+          {!isNavigating && <FloatingControls />}
 
           {/* Route comparison legend */}
-          {routes.length > 0 && !isNavigating && (
-            <div className="absolute top-20 left-4 z-20 glass border border-white/10 rounded-2xl px-3 py-2.5 space-y-1.5 shadow-lg">
+          {routes.length > 0 && !isNavigating && !isMobile && (
+            <div className="absolute top-20 left-4 z-20 glass max-w-[200px] border border-white/10 rounded-2xl px-3 py-2.5 space-y-1.5 shadow-lg">
               <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Route safety</p>
               <div className="flex items-center gap-2">
                 <span className="w-6 h-1 rounded-full" style={{ background: '#22C55E', boxShadow: '0 0 8px #22C55E' }} />
@@ -530,7 +596,7 @@ export default function App() {
 
           {/* Live activity ticker */}
           <AnimatePresence>
-            {liveActivity && (
+            {liveActivity && !routes.length && (
               <motion.div
                 key={liveActivity.id}
                 initial={{ opacity: 0, x: -16 }}
@@ -577,7 +643,7 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          {!isNavigating && (
+          {!isNavigating && !isMobile && (
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
               <p className="text-gray-700 text-[10px] text-center">
                 Tap map to report · Green = safest · Red = active alerts
@@ -585,11 +651,34 @@ export default function App() {
             </div>
           )}
 
+          <AnimatePresence>
+            {routes.length > 0 && !isNavigating && (
+              <RouteJourneyCard
+                routes={routes}
+                safetyScores={safetyScores}
+                selectedRouteIndex={selectedRouteIndex}
+                route={selectedRoute}
+                safety={selectedSafety}
+                destination={destination}
+                isMobile={isMobile}
+                onRouteSelect={handleRouteSelect}
+                onStartJourney={handleStartJourney}
+                onViewUnsafeDetail={handleViewUnsafeDetail}
+                onExpandDetails={() => setMobileSheetOpen(true)}
+              />
+            )}
+          </AnimatePresence>
+
           {/* Mobile floating search */}
-          {isMobile && (
-            <div className="absolute top-4 left-4 right-20 z-20">
+          {isMobile && !isNavigating && (
+            <div
+              className={`absolute left-4 right-16 z-20 ${routes.length > 0 ? 'top-2' : 'top-4'}`}
+              style={{ paddingTop: 'max(env(safe-area-inset-top), 0px)' }}
+            >
               <div
-                className="glass border border-white/10 rounded-2xl px-4 py-3 flex items-center gap-3 cursor-pointer shadow-lg"
+                className={`glass border border-white/10 rounded-2xl flex items-center gap-3 cursor-pointer shadow-lg touch-manipulation ${
+                  routes.length > 0 ? 'px-3 py-2' : 'px-4 py-3'
+                }`}
                 onClick={() => setMobileSheetOpen(true)}
               >
                 <svg className="w-4 h-4 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -610,15 +699,15 @@ export default function App() {
           <AnimatePresence>
             {mobileSheetOpen && (
               <motion.div
-                className="absolute bottom-0 left-0 right-0 z-30 bg-surface border-t border-white/5 rounded-t-3xl"
-                style={{ maxHeight: '70vh' }}
+                className="absolute bottom-0 left-0 right-0 z-30 bg-surface border-t border-white/5 rounded-t-3xl mobile-sheet"
+                style={{ maxHeight: 'min(88dvh, 720px)' }}
                 initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
                 transition={{ type: 'spring', stiffness: 300, damping: 30 }}
               >
                 <div className="flex justify-center py-3 cursor-pointer" onClick={() => setMobileSheetOpen(false)}>
                   <div className="w-10 h-1 bg-gray-700 rounded-full" />
                 </div>
-                <div className="overflow-y-auto" style={{ maxHeight: 'calc(70vh - 40px)' }}>
+                <div className="overflow-y-auto overscroll-contain" style={{ maxHeight: 'calc(min(88dvh, 720px) - 44px)' }}>
                   <Sidebar
                     userLocation={userLocation}
                     origin={origin}
@@ -636,7 +725,8 @@ export default function App() {
                     onDestinationSelect={(p) => { handleDestinationSelect(p); setMobileSheetOpen(false) }}
                     onDestinationClear={handleDestinationClear}
                     onSwap={handleSwap}
-                    onRouteSelect={setSelectedRouteIndex}
+                    onRouteSelect={handleRouteSelect}
+                    onUnsafeDetail={handleRouteSelect}
                     onStartJourney={handleStartJourney}
                     onReport={() => { setMobileSheetOpen(false); setShowReportModal(true) }}
                     onToggleSafeSpaces={() => setShowSafeSpaces(v => !v)}
@@ -682,6 +772,15 @@ export default function App() {
         alertCount={selectedSafety?.factorDetails?.incidents?.nearbyCount ?? 0}
         onConfirm={handleUnsafeConfirm}
         onCancel={handleUseSafeRoute}
+      />
+
+      <UnsafeRouteDetailPanel
+        visible={unsafeDetailIndex !== null && !isNavigating}
+        route={unsafeDetailIndex != null ? routes[unsafeDetailIndex] : null}
+        safety={unsafeDetailIndex != null ? safetyScores[unsafeDetailIndex] : null}
+        onClose={() => setUnsafeDetailIndex(null)}
+        onUseSafeRoute={handleUseSafeRoute}
+        onStartJourney={handleStartJourney}
       />
     </div>
   )

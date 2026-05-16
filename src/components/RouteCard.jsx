@@ -90,15 +90,20 @@ function FactorBar({ label, value, color }) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function RouteCard({ route, index, safety, isSelected, onSelect }) {
+export default function RouteCard({ route, index, safety, isSelected, onSelect, onUnsafeDetail }) {
   const [expanded, setExpanded] = useState(false)
   const scoreColor = safety?.color ?? '#6B7280'
   const routeLabel = safety?.routeLabel ?? (ROUTE_CONFIG[index] ?? ROUTE_CONFIG[2]).label
   const routeIcon  = safety?.routeIcon ?? (ROUTE_CONFIG[index] ?? ROUTE_CONFIG[2]).icon
+  const isUnsafe   = safety?.safetyClass === 'unsafe' && !safety?.isRecommended
 
-  // Glow intensity for the card border
   const borderColor = isSelected ? scoreColor + 'aa' : scoreColor + '33'
   const bgGlow      = isSelected ? scoreColor + '0d' : 'transparent'
+
+  const handleClick = () => {
+    onSelect(index)
+    if (isUnsafe) onUnsafeDetail?.(index)
+  }
 
   return (
     <motion.div
@@ -106,9 +111,11 @@ export default function RouteCard({ route, index, safety, isSelected, onSelect }
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay: index * 0.08 }}
-      className="rounded-2xl border transition-colors duration-300 cursor-pointer overflow-hidden relative"
+      className={`rounded-2xl border transition-colors duration-300 cursor-pointer overflow-hidden relative touch-manipulation ${
+        isUnsafe ? 'route-card-unsafe' : isSelected && safety?.isRecommended ? 'route-card-safe' : ''
+      }`}
       style={{ borderColor, backgroundColor: bgGlow }}
-      onClick={() => onSelect(index)}
+      onClick={handleClick}
     >
       {/* Left safety-color accent strip */}
       <div
@@ -180,7 +187,7 @@ export default function RouteCard({ route, index, safety, isSelected, onSelect }
           <div className="mb-3">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[10px] font-black tracking-widest uppercase" style={{ color: scoreColor }}>
-                {safety.label}
+                {safety.statusLabel ?? safety.label}
               </span>
               <span className="text-[10px] text-gray-600">Safety score</span>
             </div>
@@ -200,6 +207,17 @@ export default function RouteCard({ route, index, safety, isSelected, onSelect }
         )}
 
         {/* ── AI Explanation ────────────────────────────────────────────────── */}
+        {isUnsafe && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onUnsafeDetail?.(index) }}
+            className="w-full mb-3 min-h-[40px] py-2 rounded-xl border border-danger/40 text-danger text-xs font-bold warning-blink touch-manipulation"
+            style={{ background: 'rgba(239,68,68,0.08)' }}
+          >
+            View why this route is unsafe ›
+          </button>
+        )}
+
         {safety?.explanation && (
           <div
             className="rounded-xl px-3 py-2.5 mb-3 border"

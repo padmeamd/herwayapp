@@ -1,10 +1,15 @@
-import { useEffect, Fragment, useState } from 'react'
+import { useEffect, Fragment, useState, useRef } from 'react'
 import {
   MapContainer, TileLayer, Marker, Popup,
   Polyline, ZoomControl, Circle, useMap, useMapEvents,
 } from 'react-leaflet'
 import L from 'leaflet'
 import { DEFAULT_CENTER, DEFAULT_ZOOM, ROUTE_SAFE_COLOR, ROUTE_UNSAFE_COLOR } from '../data/mockData'
+import {
+  minDistToRouteKm,
+  closestPointOnRoute,
+  sampleUnsafeRouteWarnings,
+} from '../services/routeGeometry'
 
 const TILE_URL = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
 const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -70,6 +75,20 @@ const safeSpaceIcon = (icon) => L.divIcon({
   iconAnchor: [17, 17],
 })
 
+const routeHazardIcon = L.divIcon({
+  html: '<div class="route-hazard-marker">!</div>',
+  className: '',
+  iconSize: [26, 26],
+  iconAnchor: [13, 13],
+})
+
+const routeWarningPinIcon = (emoji) => L.divIcon({
+  html: `<div class="route-warning-pin">${emoji}</div>`,
+  className: '',
+  iconSize: [30, 30],
+  iconAnchor: [15, 15],
+})
+
 const customWarningIcon = L.divIcon({
   html: `<div class="incident-high" style="
     width:32px;height:32px;border-radius:50%;
@@ -131,17 +150,67 @@ function PulsingDangerZone({ center, severity }) {
   )
 }
 
-function MapController({ userLocation, origin, destination, routes, isNavigating, navPosition }) {
+function MapController({
+  userLocation,
+  origin,
+  destination,
+  routes,
+  selectedRouteIndex,
+  isNavigating,
+  navPosition,
+  navBearing,
+  recenterRequest,
+  showRouteOverview,
+}) {
   const map = useMap()
+  const initialNavZoom = useRef(false)
 
   useEffect(() => {
-    if (isNavigating && navPosition) {
-      map.flyTo([navPosition.lat, navPosition.lng], 17, { duration: 0.8 })
+    if (!isNavigating) {
+      initialNavZoom.current = false
       return
     }
+    if (!navPosition) return
+
+    if (!initialNavZoom.current) {
+      initialNavZoom.current = true
+      map.flyTo([navPosition.lat, navPosition.lng], 18, { duration: 1.2, easeLinearity: 0.25 })
+      return
+    }
+
+    map.panTo([navPosition.lat, navPosition.lng], {
+      animate: true,
+      duration: 0.55,
+      easeLinearity: 0.2,
+    })
+
+    const z = map.getZoom()
+    if (z < 16.5) map.setZoom(17, { animate: true })
+  }, [isNavigating, navPosition?.lat, navPosition?.lng, recenterRequest]) // eslint-disable-line
+
+  useEffect(() => {
+    if (!isNavigating || showRouteOverview) return
+    if (navPosition == null || navBearing == null) return
+    // Subtle heading: offset pan slightly ahead of user
+    const rad = (navBearing * Math.PI) / 180
+    const ahead = 0.00012
+    const lat = navPosition.lat + Math.cos(rad) * ahead
+    const lng = navPosition.lng + Math.sin(rad) * ahead
+    map.panTo([lat, lng], { animate: true, duration: 0.55 })
+  }, [navBearing, showRouteOverview]) // eslint-disable-line
+
+  useEffect(() => {
+    if (!isNavigating || !showRouteOverview || !routes.length) return
+    const route = routes[selectedRouteIndex] ?? routes[0]
+    const coords = (route.geometry?.coordinates ?? []).map(([lng, lat]) => [lat, lng])
+    if (coords.length) map.fitBounds(coords, { padding: [100, 80], maxZoom: 16 })
+  }, [showRouteOverview, isNavigating, selectedRouteIndex, routes])
+
+  useEffect(() => {
+    if (isNavigating) return
     if (!userLocation || destination) return
     map.flyTo([userLocation.lat, userLocation.lng], DEFAULT_ZOOM, { duration: 1.5 })
-  }, [isNavigating, navPosition?.lat, navPosition?.lng]) // eslint-disable-line
+  }, [userLocation?.lat, userLocation?.lng, isNavigating, destination]) // eslint-disable-line
 
   useEffect(() => {
     if (isNavigating) return
@@ -157,6 +226,14 @@ function MapController({ userLocation, origin, destination, routes, isNavigating
     if (!all.length) return
     map.fitBounds(all, { padding: [80, 60], maxZoom: 16 })
   }, [routes, origin, destination, isNavigating]) // eslint-disable-line
+
+  useEffect(() => {
+    if (isNavigating || !routes.length) return
+    const route = routes[selectedRouteIndex] ?? routes[0]
+    const coords = (route.geometry?.coordinates ?? []).map(([lng, lat]) => [lat, lng])
+    if (coords.length < 2) return
+    map.fitBounds(coords, { padding: [130, 56], maxZoom: 17 })
+  }, [selectedRouteIndex, routes]) // eslint-disable-line
 
   return null
 }
@@ -204,8 +281,60 @@ function SafeSpacePopup({ space }) {
   )
 }
 
-function RoutePolylines({ routes, safetyScores, selectedRouteIndex, isNavigating, navProgress, onRouteClick }) {
-  return routes.map((route, i) => {
+function RouteHazardMarkers({ routes, safetyScores, incidents, selectedRouteIndex }) {
+  const unsafeIdx = routes.findIndex((_, i) => safetyScores?.[i]?.safetyClass === 'unsafe')
+  if (unsafeIdx < 0) return null
+  const coords = routes[unsafeIdx]?.geometry?.coordinates ?? []
+  const highlightUnsafe = selectedRouteIndex === unsafeIdx
+
+  const markers = sampleUnsafeRouteWarnings(coords, incidents).map((pin, idx) => (
+    <Marker
+      key={`route-warn-${idx}-${pin.lat}`}
+      position={[pin.lat, pin.lng]}
+      icon={routeWarningPinIcon(pin.icon)}
+      zIndexOffset={highlightUnsafe ? 780 : 640}
+    >
+      <Popup>
+        <div style={{ fontWeight: 700, color: '#EF4444', fontSize: 12 }}>{pin.title}</div>
+        <div style={{ color: '#9CA3AF', fontSize: 11, marginTop: 4 }}>{pin.detail}</div>
+        <div style={{ color: '#EF4444', fontSize: 10, marginTop: 6, fontWeight: 600 }} className="warning-blink">
+          ● Active on unsafe route
+        </div>
+      </Popup>
+    </Marker>
+  ))
+
+  for (const inc of incidents) {
+    if (minDistToRouteKm(coords, inc.lat, inc.lng) >= 0.3) continue
+    const pt = closestPointOnRoute(coords, inc.lat, inc.lng)
+    if (!pt) continue
+    markers.push(
+      <Marker
+        key={`hazard-${inc.id}`}
+        position={[pt.lat, pt.lng]}
+        icon={routeHazardIcon}
+        zIndexOffset={highlightUnsafe ? 820 : 700}
+      >
+        <Popup>
+          <div style={{ fontWeight: 700, color: '#EF4444', fontSize: 12 }}>On unsafe route</div>
+          <div style={{ color: '#9CA3AF', fontSize: 11 }}>{inc.type}</div>
+        </Popup>
+      </Marker>,
+    )
+  }
+  return <>{markers}</>
+}
+
+function RoutePolylines({ routes, safetyScores, selectedRouteIndex, isNavigating, navProgress, onRouteClick, onUnsafeRouteClick }) {
+  const order = routes.map((_, idx) => idx)
+  const selPos = order.indexOf(selectedRouteIndex)
+  if (selPos >= 0) {
+    order.splice(selPos, 1)
+    order.push(selectedRouteIndex)
+  }
+
+  return order.map((i) => {
+    const route = routes[i]
     const safety = safetyScores?.[i]
     const isSafe = safety?.isRecommended ?? safety?.safetyClass === 'safe'
     const color = isSafe ? ROUTE_SAFE_COLOR : ROUTE_UNSAFE_COLOR
@@ -213,8 +342,12 @@ function RoutePolylines({ routes, safetyScores, selectedRouteIndex, isNavigating
     const positions = (route.geometry?.coordinates ?? []).map(([lng, lat]) => [lat, lng])
     if (!positions.length) return null
 
-    const glowClass = isSafe ? 'leaflet-route-glow-safe' : 'leaflet-route-glow-unsafe'
-    const opacity = isNavigating ? (isSelected ? 1 : 0.12) : (isSelected ? 1 : 0.45)
+    const glowClass = isSafe
+      ? 'leaflet-route-glow-safe route-line-safe'
+      : 'leaflet-route-glow-unsafe route-line-unsafe'
+    const opacity = isNavigating
+      ? (isSelected ? 1 : 0.08)
+      : (isSelected ? 1 : isSafe ? 0.38 : 0.42)
 
     const progressIdx = Math.floor((navProgress ?? 0) * Math.max(positions.length - 1, 1))
     const traveled = isNavigating && isSelected ? positions.slice(0, progressIdx + 1) : []
@@ -268,8 +401,26 @@ function RoutePolylines({ routes, safetyScores, selectedRouteIndex, isNavigating
             lineJoin: 'round',
             className: glowClass,
           }}
-          eventHandlers={{ click: () => !isNavigating && onRouteClick?.(i) }}
         />
+        {!isNavigating && (
+          <Polyline
+            positions={positions}
+            pathOptions={{
+              color: 'transparent',
+              weight: 22,
+              opacity: 0,
+              lineCap: 'round',
+              lineJoin: 'round',
+            }}
+            eventHandlers={{
+              click: (e) => {
+                L.DomEvent.stopPropagation(e)
+                onRouteClick?.(i)
+                if (!isSafe) onUnsafeRouteClick?.(i)
+              },
+            }}
+          />
+        )}
         {isSelected && (
           <Polyline
             positions={isNavigating && remaining.length ? remaining : positions}
@@ -302,9 +453,14 @@ export default function MapView({
   isNavigating,
   navPosition,
   navProgress,
+  navBearing,
+  recenterRequest,
+  showRouteOverview,
   isUnsafeRoute,
   onRouteClick,
+  onUnsafeRouteClick,
   onMapClick,
+  isMobile,
 }) {
   const displayLocation = (isNavigating && navPosition) ? navPosition : (!isNavigating && origin ? null : userLocation)
 
@@ -317,15 +473,19 @@ export default function MapView({
       attributionControl={true}
     >
       <TileLayer url={TILE_URL} attribution={TILE_ATTR} />
-      <ZoomControl position="bottomright" />
+      <ZoomControl position={isMobile ? 'bottomleft' : 'bottomright'} />
 
       <MapController
         userLocation={userLocation}
         origin={origin}
         destination={destination}
         routes={routes}
+        selectedRouteIndex={selectedRouteIndex}
         isNavigating={isNavigating}
         navPosition={navPosition}
+        navBearing={navBearing}
+        recenterRequest={recenterRequest}
+        showRouteOverview={showRouteOverview}
       />
 
       <MapClickHandler onMapClick={onMapClick} isNavigating={isNavigating} />
@@ -345,6 +505,14 @@ export default function MapView({
         isNavigating={isNavigating}
         navProgress={navProgress}
         onRouteClick={onRouteClick}
+        onUnsafeRouteClick={onUnsafeRouteClick}
+      />
+
+      <RouteHazardMarkers
+        routes={routes}
+        safetyScores={safetyScores}
+        incidents={incidents}
+        selectedRouteIndex={selectedRouteIndex}
       />
 
       {isNavigating && navPosition && (

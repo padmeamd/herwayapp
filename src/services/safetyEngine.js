@@ -211,6 +211,77 @@ function buildExplanation(factors, score, routeIndex) {
   return `⚠️ Active alerts detected — ${reasons}. The safe green route is recommended instead.`
 }
 
+// ── Detailed unsafe-route reasons (for explanation panel) ───────────────────
+
+const GENERIC_UNSAFE_REASONS = [
+  { icon: '👥', title: 'Low pedestrian activity', detail: 'Foot traffic drops significantly on this section after dark.' },
+  { icon: '📹', title: 'Broken CCTV coverage nearby', detail: 'Community reports indicate gaps in camera coverage along this corridor.' },
+  { icon: '🌙', title: 'Poor lighting after 10PM', detail: 'Street lighting is inconsistent — several lamps reported out on this path.' },
+  { icon: '🚧', title: 'Construction blocking main sidewalk', detail: 'Pedestrians forced into a narrower, less visible walkway.' },
+  { icon: '🌊', title: 'Flooding risk reported', detail: 'Water pooling reported — slippery surfaces and reduced visibility.' },
+  { icon: '👁️', title: 'Isolated section with limited visibility', detail: 'Tree cover and building setbacks create blind corners with low sightlines.' },
+]
+
+export function buildUnsafeReasons(route, factors, incidents = []) {
+  const coords = route?.geometry?.coordinates ?? []
+  const reasons = []
+  const used = new Set()
+
+  const push = (r) => {
+    const key = r.title
+    if (used.has(key)) return
+    used.add(key)
+    reasons.push(r)
+  }
+
+  for (const inc of incidents) {
+    const d = minDistToRoute(coords, inc.lat, inc.lng)
+    if (d >= 0.35) continue
+
+    const type = (inc.type || '').toLowerCase()
+    if (/harassment/i.test(type)) {
+      push({ icon: '🚨', title: 'Harassment reports', detail: inc.description || 'Recent harassment reports detected on this street.', severity: 'high', time: inc.time })
+    } else if (/suspicious/i.test(type)) {
+      push({ icon: '👀', title: 'Suspicious activity', detail: inc.description || 'Multiple users flagged suspicious behaviour nearby.', severity: 'high', time: inc.time })
+    } else if (/lighting/i.test(type)) {
+      push({ icon: '💡', title: 'Poor lighting', detail: inc.description || 'Poor lighting reported after 10PM on this segment.', severity: 'medium', time: inc.time })
+    } else if (/flood/i.test(type)) {
+      push({ icon: '🌊', title: 'Flooding risk', detail: inc.description || 'Flooding risk reported — use alternate crossing.', severity: 'medium', time: inc.time })
+    } else if (/isolat/i.test(type)) {
+      push({ icon: '🌑', title: 'Isolated area warning', detail: inc.description || 'Isolated section with limited visibility and low footfall.', severity: 'high', time: inc.time })
+    } else if (/construction|blocked/i.test(type)) {
+      push({ icon: '🚧', title: 'Construction / blocked path', detail: inc.description || 'Construction blocking main sidewalk.', severity: 'medium', time: inc.time })
+    } else if (/unsafe|feeling/i.test(type)) {
+      push({ icon: '😰', title: 'Community safety concern', detail: inc.description || 'Multiple users reported feeling unsafe here.', severity: 'high', time: inc.time })
+    } else {
+      push({ icon: '⚠️', title: inc.type, detail: inc.description || 'Active community alert on this route.', severity: inc.severity, time: inc.time })
+    }
+  }
+
+  if (factors?.lighting?.score < 58) {
+    push({ icon: '💡', title: 'Poor street lighting', detail: 'HerWay lighting index is low — several blocks with dim or broken lamps.' })
+  }
+  if (factors?.incidents?.nearbyCount > 0 && reasons.length < 2) {
+    push({ icon: '📍', title: 'Active alerts on route', detail: `${factors.incidents.nearbyCount} live community alert${factors.incidents.nearbyCount !== 1 ? 's' : ''} intersect this path.` })
+  }
+  if (factors?.directness?.positive === false) {
+    push({ icon: '🌑', title: 'Isolated winding section', detail: 'Route passes through areas with limited visibility and lower foot traffic.' })
+  }
+  if (factors?.safeSpaces?.positive === false) {
+    push({ icon: '🏠', title: 'Few safe spaces nearby', detail: 'Limited access to verified safe locations if you need to detour quickly.' })
+  }
+  if (factors?.time?.positive === false) {
+    push({ icon: '🕐', title: factors.time.label, detail: 'Time-of-day risk elevated — consider the green HerWay recommended route.' })
+  }
+
+  for (const g of GENERIC_UNSAFE_REASONS) {
+    if (reasons.length >= 6) break
+    if (!used.has(g.title)) push(g)
+  }
+
+  return reasons.slice(0, 6)
+}
+
 function buildFeaturePills(factors) {
   const pills = []
   if (factors.lighting.score  >= 75) pills.push('Well-lit')
@@ -237,12 +308,15 @@ export function analyzeRoutes(routes, { incidents = [], safeSpaces = [] } = {}) 
   const analyzed = routes.map((route, i) => {
     const coords = route.geometry?.coordinates ?? []
 
+    const lightingIdx = route.role === 'safe' ? 0 : route.role === 'unsafe' ? 2 : i
+    const directIdx   = route.role === 'safe' ? 0 : route.role === 'unsafe' ? 2 : i
+
     const factors = {
       time:       scoreTimeOfDay(hour),
       incidents:  scoreIncidents(coords, incidents),
       safeSpaces: scoreSafeSpaces(coords, safeSpaces),
-      lighting:   scoreLighting(hour, i),
-      directness: scoreDirectness(route, i),
+      lighting:   scoreLighting(hour, lightingIdx),
+      directness: scoreDirectness(route, directIdx),
     }
 
     const score = Math.round(Math.max(0, Math.min(100, weightedScore(factors))))
@@ -268,36 +342,48 @@ export function analyzeRoutes(routes, { incidents = [], safeSpaces = [] } = {}) 
     }
   })
 
-  // Mark highest scorer as recommended (green); all others are unsafe (red)
-  const SAFE_GREEN  = '#22C55E'
-  const UNSAFE_RED  = '#EF4444'
+  const SAFE_GREEN = '#22C55E'
+  const UNSAFE_RED = '#EF4444'
 
-  if (analyzed.length) {
+  const safeIdx   = routes.findIndex(r => r.role === 'safe')
+  const unsafeIdx = routes.findIndex(r => r.role === 'unsafe')
+
+  if (safeIdx >= 0) {
+    analyzed.forEach((a, i) => { a.isRecommended = i === safeIdx })
+  } else if (analyzed.length) {
     const maxScore = Math.max(...analyzed.map(a => a.score))
     const recIdx   = analyzed.findIndex(a => a.score === maxScore)
     analyzed[recIdx].isRecommended = true
   }
 
-  analyzed.forEach((a) => {
+  analyzed.forEach((a, i) => {
+    const route  = routes[i]
     const alerts = a.factorDetails?.incidents?.nearbyCount ?? 0
     const hasRisk =
+      route?.role === 'unsafe' ||
       alerts > 0 ||
       a.score < 60 ||
       a.factorDetails?.lighting?.positive === false ||
       a.factorDetails?.directness?.positive === false
 
-    if (a.isRecommended) {
+    if (a.isRecommended || route?.role === 'safe') {
       a.color = SAFE_GREEN
       a.safetyClass = 'safe'
       a.routeLabel = 'Safest Route'
       a.routeIcon = '✦'
+      a.statusLabel = 'AI Recommended · Safe'
       a.hasActiveAlerts = false
+      a.unsafeReasons = []
+      if (route?.role === 'safe') a.score = Math.max(a.score, 84)
     } else {
       a.color = UNSAFE_RED
       a.safetyClass = 'unsafe'
-      a.hasActiveAlerts = hasRisk || alerts > 0
-      a.routeLabel = a.hasActiveAlerts ? 'Active Alerts' : 'Higher Risk'
+      a.hasActiveAlerts = true
+      a.routeLabel = 'Unsafe Route'
       a.routeIcon = '⚠'
+      a.statusLabel = 'Active alerts · Avoid'
+      a.unsafeReasons = buildUnsafeReasons(route, a.factorDetails, incidents)
+      if (route?.role === 'unsafe') a.score = Math.min(a.score, 48)
     }
   })
 

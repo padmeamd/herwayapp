@@ -29,6 +29,7 @@ export default function Sidebar({
   onDestinationClear,
   onSwap,
   onRouteSelect,
+  onUnsafeDetail,
   onStartJourney,
   onReport,
   onToggleSafeSpaces,
@@ -177,6 +178,7 @@ export default function Sidebar({
                     safety={safetyScores[i]}
                     isSelected={selectedRouteIndex === i}
                     onSelect={onRouteSelect}
+                    onUnsafeDetail={onUnsafeDetail}
                   />
                 ))}
 
@@ -193,7 +195,7 @@ export default function Sidebar({
                       : '0 8px 24px rgba(239,68,68,0.35)',
                   }}
                 >
-                  {selectedSafety?.isRecommended ? 'Start Safe Navigation ›' : 'Navigate This Route ›'}
+                  Start Journey
                 </button>
               </>
             )}
@@ -258,7 +260,7 @@ function AILoadingState() {
   return (
     <div className="space-y-3">
       {/* Skeleton cards */}
-      {[0, 1, 2].map(i => (
+                {[0, 1].map(i => (
         <div key={i} className="rounded-2xl border border-white/5 bg-card overflow-hidden">
           <div className="h-1 bg-gradient-to-r from-primary/30 via-primary/10 to-transparent animate-pulse" />
           <div className="p-4 space-y-3">

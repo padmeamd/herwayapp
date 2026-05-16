@@ -255,3 +255,125 @@ body {
 .warning-blink {
   animation: warning-blink 0.9s ease-in-out infinite;
 }
+
+/* ── Route hazard markers on unsafe path ───────────────────── */
+.route-hazard-marker {
+  width: 26px;
+  height: 26px;
+  background: #EF4444;
+  border: 2px solid white;
+  border-radius: 50%;
+  color: white;
+  font-weight: 900;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.35);
+  animation: incident-flash-high 1.2s ease-in-out infinite;
+}
+
+/* ── Route card / line animations ─────────────────────────── */
+.route-card-unsafe {
+  animation: glow-unsafe 2s ease-in-out infinite;
+}
+
+.route-card-safe {
+  animation: glow-safe 3s ease-in-out infinite;
+}
+
+.route-line-unsafe path {
+  animation: route-pulse-unsafe 1.8s ease-in-out infinite;
+}
+
+.route-line-safe path {
+  animation: route-pulse-safe 3s ease-in-out infinite;
+}
+
+@keyframes route-pulse-unsafe {
+  0%, 100% { stroke-opacity: 0.85; }
+  50%       { stroke-opacity: 1; }
+}
+
+@keyframes route-pulse-safe {
+  0%, 100% { stroke-opacity: 0.9; }
+  50%       { stroke-opacity: 1; }
+}
+
+.touch-manipulation {
+  touch-action: manipulation;
+}
+
+/* ── Mobile layout ────────────────────────────────────────── */
+/* ── Fullscreen navigation mode ───────────────────────────── */
+.nav-map-fullscreen {
+  position: fixed !important;
+  inset: 0;
+  z-index: 20;
+}
+
+.nav-panel-mobile {
+  max-height: min(72dvh, 520px);
+}
+
+.route-warning-pin {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.35);
+  border: 2px solid #ef4444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  animation: route-warning-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes route-warning-blink {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.65); transform: scale(1); }
+  50% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); transform: scale(1.08); }
+}
+
+.route-journey-card {
+  bottom: 0;
+}
+
+@media (max-width: 767px) {
+  .unsafe-detail-panel {
+    bottom: calc(200px + env(safe-area-inset-bottom));
+    max-height: min(52dvh, 420px) !important;
+  }
+
+  .leaflet-control-zoom {
+    margin-bottom: calc(280px + env(safe-area-inset-bottom)) !important;
+    margin-left: 12px !important;
+  }
+
+  .nav-map-fullscreen .leaflet-control-zoom {
+    margin-bottom: calc(220px + env(safe-area-inset-bottom)) !important;
+  }
+
+  .leaflet-control-attribution {
+    font-size: 8px !important;
+    max-width: 55%;
+  }
+
+  .mobile-sheet {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  #root {
+    height: 100dvh;
+    overflow: hidden;
+  }
+}
+
+@media (min-width: 768px) {
+  .leaflet-route-glow-safe path {
+    filter: drop-shadow(0 0 12px rgba(34, 197, 94, 0.9));
+  }
+  .leaflet-route-glow-unsafe path {
+    filter: drop-shadow(0 0 12px rgba(239, 68, 68, 0.9));
+  }
+}

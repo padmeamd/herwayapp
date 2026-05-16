@@ -6,12 +6,12 @@ const STREET_NAMES = [
   'Queen Street', 'Magdalen Street', 'George Street', 'Pembroke Street',
 ]
 
-function bearingToDirection(bearing) {
+export function bearingToDirection(bearing) {
   const dirs = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest']
   return dirs[Math.round(bearing / 45) % 8]
 }
 
-function computeBearing([lng1, lat1], [lng2, lat2]) {
+export function computeBearing([lng1, lat1], [lng2, lat2]) {
   const dLon = (lng2 - lng1) * (Math.PI / 180)
   const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180)
   const x =
@@ -20,12 +20,11 @@ function computeBearing([lng1, lat1], [lng2, lat2]) {
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360
 }
 
-/** Build turn-by-turn steps from route geometry (demo). */
 export function buildNavigationSteps(route) {
   const coords = route?.geometry?.coordinates ?? []
   if (coords.length < 2) return []
 
-  const chunkSize = Math.max(2, Math.floor(coords.length / 5))
+  const chunkSize = Math.max(2, Math.floor(coords.length / 6))
   const steps = []
   let streetIdx = 0
 
@@ -38,20 +37,18 @@ export function buildNavigationSteps(route) {
   })
 
   for (let i = chunkSize; i < coords.length - 1; i += chunkSize) {
-    const prev = coords[i - chunkSize]
+    const prev = coords[Math.max(0, i - chunkSize)]
     const curr = coords[i]
     const bearing = computeBearing(prev, curr)
-    const dir = bearingToDirection(bearing)
     const street = STREET_NAMES[streetIdx % STREET_NAMES.length]
     streetIdx++
-
     const turnRight = (bearing % 360) > 45 && (bearing % 360) < 180
     steps.push({
       type: turnRight ? 'turn-right' : 'turn-left',
       icon: turnRight ? '↱' : '↰',
-      instruction: turnRight ? 'Turn right' : 'Continue',
+      instruction: turnRight ? 'Turn right' : 'Continue straight',
       detail: `onto ${street}`,
-      direction: dir,
+      direction: bearingToDirection(bearing),
       distanceM: Math.round((i / coords.length) * (route.distance ?? 800)),
     })
   }
@@ -67,8 +64,7 @@ export function buildNavigationSteps(route) {
   return steps
 }
 
-/** Sample lat/lng points along the route for live position. */
-function sampleRoutePositions(coords, count = 80) {
+function sampleRoutePositions(coords, count = 120) {
   if (coords.length < 2) return []
   const out = []
   for (let i = 0; i < count; i++) {
@@ -85,14 +81,24 @@ function sampleRoutePositions(coords, count = 80) {
 }
 
 /**
- * Demo navigation: advances along route geometry with turn-by-turn state.
+ * Demo walking navigation along route geometry with turn-by-turn + live safety events.
  */
-export function useNavigation({ route, active, isUnsafeRoute = false }) {
+export function useNavigation({
+  route,
+  active,
+  isUnsafeRoute = false,
+  userLocation = null,
+  incidents = [],
+}) {
   const [progress, setProgress] = useState(0)
   const [stepIndex, setStepIndex] = useState(0)
   const [safetyUpdate, setSafetyUpdate] = useState(null)
+  const [phase, setPhase] = useState('idle') // idle | starting | active | arrived
   const tickRef = useRef(null)
   const rerouteShown = useRef(false)
+  const incidentAlertShown = useRef(false)
+  const recenterToken = useRef(0)
+  const [recenterRequest, setRecenterRequest] = useState(0)
 
   const positions = useMemo(
     () => sampleRoutePositions(route?.geometry?.coordinates ?? []),
@@ -105,6 +111,14 @@ export function useNavigation({ route, active, isUnsafeRoute = false }) {
     if (!positions.length) return null
     const idx = Math.min(Math.floor(progress * (positions.length - 1)), positions.length - 1)
     return positions[idx]
+  }, [positions, progress])
+
+  const bearing = useMemo(() => {
+    if (!positions.length) return 0
+    const idx = Math.min(Math.floor(progress * (positions.length - 1)), positions.length - 2)
+    const a = positions[idx]
+    const b = positions[Math.min(idx + 1, positions.length - 1)]
+    return computeBearing([a.lng, a.lat], [b.lng, b.lat])
   }, [positions, progress])
 
   const currentStep = steps[stepIndex] ?? steps[0]
@@ -120,12 +134,23 @@ export function useNavigation({ route, active, isUnsafeRoute = false }) {
     return Math.round(route.duration * (1 - progress))
   }, [route, progress])
 
+  const isComplete = progress >= 0.995
+
   const reset = useCallback(() => {
     setProgress(0)
     setStepIndex(0)
     setSafetyUpdate(null)
+    setPhase('idle')
     rerouteShown.current = false
+    incidentAlertShown.current = false
   }, [])
+
+  const requestRecenter = useCallback(() => {
+    recenterToken.current += 1
+    setRecenterRequest(recenterToken.current)
+  }, [])
+
+  const dismissSafetyUpdate = useCallback(() => setSafetyUpdate(null), [])
 
   useEffect(() => {
     if (!active || !route) {
@@ -134,53 +159,74 @@ export function useNavigation({ route, active, isUnsafeRoute = false }) {
     }
 
     reset()
-    const intervalMs = 1200
+    setPhase('starting')
+    const startTimer = setTimeout(() => setPhase('active'), 600)
+
+    const intervalMs = 750
+    const stepProgress = 0.014
 
     tickRef.current = setInterval(() => {
       setProgress(p => {
-        const next = Math.min(1, p + 0.018)
+        const next = Math.min(1, p + stepProgress)
         const stepAt = Math.floor(next * Math.max(steps.length - 1, 1))
         setStepIndex(Math.min(stepAt, steps.length - 1))
+        if (next >= 0.995) setPhase('arrived')
         return next
       })
     }, intervalMs)
 
-    return () => clearInterval(tickRef.current)
-  }, [active, route?.index]) // eslint-disable-line
+    return () => {
+      clearTimeout(startTimer)
+      clearInterval(tickRef.current)
+    }
+  }, [active, route?.index, route?.role]) // eslint-disable-line
 
-  // Dynamic safety update + reroute demo on unsafe routes
+  // Unsafe route: danger ahead
   useEffect(() => {
-    if (!active || !isUnsafeRoute || rerouteShown.current) return undefined
-
+    if (!active || !isUnsafeRoute || phase !== 'active' || rerouteShown.current) return undefined
     const t = setTimeout(() => {
       rerouteShown.current = true
       setSafetyUpdate({
         type: 'danger',
         message: 'New harassment report detected 150m ahead',
-        action: 'Rerouting to safer path recommended',
+        action: 'Tap Reroute for the safe green path',
       })
-    }, 8000)
-
+    }, 7000)
     return () => clearTimeout(t)
-  }, [active, isUnsafeRoute])
+  }, [active, isUnsafeRoute, phase])
 
+  // Safe route: periodic clear updates
   useEffect(() => {
-    if (!active || isUnsafeRoute) return undefined
-    const t = setTimeout(() => {
-      setSafetyUpdate({
-        type: 'safe',
-        message: 'Route clear — no new alerts on your path',
-      })
-      setTimeout(() => setSafetyUpdate(null), 4000)
-    }, 6000)
-    return () => clearTimeout(t)
-  }, [active, isUnsafeRoute])
+    if (!active || isUnsafeRoute || phase !== 'active') return undefined
+    const t1 = setTimeout(() => {
+      setSafetyUpdate({ type: 'safe', message: 'Route clear — no new alerts on your path' })
+      const t2 = setTimeout(() => setSafetyUpdate(null), 3500)
+      return () => clearTimeout(t2)
+    }, 5000)
+    return () => clearTimeout(t1)
+  }, [active, isUnsafeRoute, phase])
 
-  const dismissSafetyUpdate = useCallback(() => setSafetyUpdate(null), [])
+  // Simulated mid-navigation incident (both routes)
+  useEffect(() => {
+    if (!active || phase !== 'active' || incidentAlertShown.current) return undefined
+    const t = setTimeout(() => {
+      incidentAlertShown.current = true
+      if (!isUnsafeRoute) {
+        setSafetyUpdate({
+          type: 'danger',
+          message: 'Suspicious activity reported nearby',
+          action: 'HerWay is monitoring your route',
+        })
+        setTimeout(() => setSafetyUpdate(null), 5000)
+      }
+    }, 12000)
+    return () => clearTimeout(t)
+  }, [active, phase, isUnsafeRoute])
 
   return {
     progress,
     position,
+    bearing,
     steps,
     stepIndex,
     currentStep,
@@ -189,6 +235,9 @@ export function useNavigation({ route, active, isUnsafeRoute = false }) {
     etaSeconds,
     safetyUpdate,
     dismissSafetyUpdate,
-    isComplete: progress >= 0.99,
+    isComplete,
+    phase,
+    recenterRequest,
+    requestRecenter,
   }
 }
