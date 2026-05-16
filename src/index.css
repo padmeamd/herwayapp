@@ -373,23 +373,24 @@ body {
 /* ── Mobile phones (< 768px) ──────────────────────────────── */
 @media (max-width: 767px) {
   :root {
-    --herway-journey-height: 0px;
+    /* Sheet height is set dynamically via JS --mobile-sheet-h.
+       Fall back to peek height (80px). Controls sit above it. */
+    --herway-journey-height: var(--mobile-sheet-h, 80px);
     --herway-controls-bottom: calc(var(--herway-journey-height) + var(--herway-safe-bottom) + 12px);
-    --herway-map-inset-bottom: calc(var(--herway-journey-height) + var(--herway-safe-bottom));
+    --herway-map-inset-bottom: var(--herway-journey-height);
+    /* Navigation bottom bar height */
+    --nav-bottom-h: 88px;
   }
 
-  .unsafe-detail-panel {
-    bottom: calc(var(--herway-journey-height) + var(--herway-safe-bottom) + 8px);
-    max-height: min(48dvh, 380px) !important;
-  }
-
+  /* Zoom controls clear the sheet */
   .leaflet-control-zoom {
     margin-bottom: var(--herway-controls-bottom) !important;
     margin-left: 12px !important;
   }
 
+  /* During nav zoom controls sit above the bottom ETA bar */
   .nav-map-fullscreen .leaflet-control-zoom {
-    margin-bottom: calc(200px + var(--herway-safe-bottom)) !important;
+    margin-bottom: calc(var(--nav-bottom-h) + env(safe-area-inset-bottom) + 12px) !important;
   }
 
   .leaflet-control-attribution {
@@ -398,96 +399,39 @@ body {
     margin-bottom: var(--herway-safe-bottom) !important;
   }
 
-  .mobile-sheet-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 44;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+  /* Unsafe detail panel stays above sheet */
+  .unsafe-detail-panel {
+    bottom: calc(var(--herway-journey-height) + var(--herway-safe-bottom) + 8px);
+    max-height: min(48dvh, 380px) !important;
   }
 
-  .mobile-sheet-panel {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 45;
-    max-height: min(92dvh, 720px);
-    padding-bottom: var(--herway-safe-bottom);
-  }
-
-  .mobile-top-search {
-    padding-top: var(--herway-safe-top);
-  }
-
+  /* Sheet itself */
   .mobile-route-panel {
     touch-action: none;
     will-change: height;
+    z-index: 50;
   }
 
-  .mobile-route-panel [class*='overflow-y-auto'] {
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-  }
-
-  .mobile-route-fab {
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  .floating-controls-mobile {
-    bottom: var(--herway-controls-bottom);
-  }
-
-  .nav-hud-controls {
-    bottom: calc(200px + var(--herway-safe-bottom)) !important;
-  }
-
-  .nav-hud-progress {
-    bottom: calc(188px + var(--herway-safe-bottom)) !important;
-  }
-
-  .nav-hud-status {
-    top: calc(var(--herway-safe-top) + 52px) !important;
-  }
+  /* Horizontal route-card scroll — hide scrollbar */
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { scrollbar-width: none; }
 }
 
 /* ── Tablet (768–1023px) — compact map-first layout ─────── */
 @media (min-width: 768px) and (max-width: 1023px) {
   :root {
-    --herway-journey-height: 0px;
+    --herway-journey-height: var(--mobile-sheet-h, 80px);
     --herway-controls-bottom: calc(var(--herway-journey-height) + var(--herway-safe-bottom) + 16px);
-    --herway-map-inset-bottom: calc(var(--herway-journey-height) + var(--herway-safe-bottom));
-  }
-
-  .route-journey-card-inner {
-    max-height: min(42dvh, 360px);
+    --herway-map-inset-bottom: var(--herway-journey-height);
+    --nav-bottom-h: 88px;
   }
 
   .leaflet-control-zoom {
     margin-bottom: var(--herway-controls-bottom) !important;
   }
 
-  .mobile-sheet-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 44;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
-  }
-
-  .mobile-sheet-panel {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 45;
-    max-height: min(85dvh, 680px);
-    padding-bottom: var(--herway-safe-bottom);
-  }
-
-  .floating-controls-mobile {
-    bottom: var(--herway-controls-bottom);
+  .nav-map-fullscreen .leaflet-control-zoom {
+    margin-bottom: calc(var(--nav-bottom-h) + env(safe-area-inset-bottom) + 12px) !important;
   }
 
   .unsafe-detail-panel {
@@ -496,6 +440,9 @@ body {
     left: auto;
     right: 1rem;
   }
+
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { scrollbar-width: none; }
 }
 
 /* ── Desktop (≥ 1024px) ───────────────────────────────────── */
@@ -516,13 +463,13 @@ body {
     margin-right: 1rem !important;
   }
 
-  .nav-hud-controls {
-    bottom: 1.5rem !important;
-    top: auto !important;
+  /* On desktop nav panel handles HUD; top bar stays compact */
+  .nav-hud-top {
+    max-height: 72px;
   }
 
-  .nav-hud-status {
-    top: calc(var(--herway-safe-top) + 0.75rem) !important;
+  .nav-hud-fab {
+    bottom: 100px !important;
   }
 
   .nav-panel-mobile {

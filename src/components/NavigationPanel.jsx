@@ -26,7 +26,7 @@ export default function NavigationPanel({
   if (isComplete) {
     return (
       <motion.div
-        className="absolute inset-0 z-[38] flex items-center justify-center p-6 pointer-events-none nav-panel-mobile"
+        className="absolute inset-0 z-[1080] flex items-center justify-center p-6 pointer-events-none nav-panel-mobile"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
       >
@@ -52,7 +52,7 @@ export default function NavigationPanel({
 
   return (
     <motion.div
-      className="absolute bottom-0 left-0 right-0 z-[38] pointer-events-none nav-panel-mobile"
+      className="absolute bottom-0 left-0 right-0 z-[1080] pointer-events-none nav-panel-mobile"
       initial={{ y: '100%' }}
       animate={{ y: 0 }}
       exit={{ y: '100%' }}

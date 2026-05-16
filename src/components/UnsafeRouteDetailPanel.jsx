@@ -16,7 +16,7 @@ export default function UnsafeRouteDetailPanel({
       {visible && (
         <>
           <motion.div
-            className="fixed inset-0 z-[45] bg-black/55 backdrop-blur-sm"
+            className="fixed inset-0 z-[1160] bg-black/55 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -24,7 +24,7 @@ export default function UnsafeRouteDetailPanel({
           />
 
           <motion.div
-            className="fixed z-[40] flex flex-col overflow-hidden border border-danger/30 shadow-2xl
+            className="fixed z-[1140] flex flex-col overflow-hidden border border-danger/30 shadow-2xl
               inset-x-0 bottom-0 rounded-t-3xl max-h-[min(72dvh,560px)] unsafe-detail-panel
               md:inset-auto md:left-auto md:right-6 md:top-24 md:bottom-auto md:w-[400px] md:max-h-[calc(100dvh-7rem)] md:rounded-3xl"
             style={{ background: 'linear-gradient(180deg, #1a0a0c 0%, #111827 45%, #0a1628 100%)' }}

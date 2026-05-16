@@ -6,7 +6,7 @@ export default function UnsafeRouteConfirm({ visible, alertCount, onConfirm, onC
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 z-[55] flex items-end sm:items-center justify-center p-4 sm:p-6"
+        className="fixed inset-0 z-[1210] flex items-end sm:items-center justify-center p-4 sm:p-6"
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 1rem)' }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}

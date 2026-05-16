@@ -60,8 +60,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [activeAlert, setActiveAlert] = useState(null)
   const [routeError, setRouteError] = useState(null)
-  /** @type {'hidden' | 'half' | 'full'} */
-  const [mobilePanelSnap, setMobilePanelSnap] = useState('hidden')
+  /** @type {'peek' | 'routes' | 'plan' | 'full'} */
+  const [mobilePanelSnap, setMobilePanelSnap] = useState('peek')
   const [unsafeDetailIndex, setUnsafeDetailIndex] = useState(null)
   const [showRouteOverview, setShowRouteOverview] = useState(false)
 
@@ -142,11 +142,23 @@ export default function App() {
 
   const handleDestinationSelect = useCallback(async (place) => {
     setDestination(place)
+    setIsNavigating(false)
+    setMobilePanelSnap('plan')
     const from = origin ?? userLocation
     if (!from) return
-    setIsNavigating(false)
     await calcRoutes(from, place)
   }, [userLocation, origin]) // eslint-disable-line
+
+  const handleGenerateRoutes = useCallback(async () => {
+    const from = origin ?? userLocation
+    if (!destination) return
+    if (!from) {
+      setRouteError('Waiting for your location — enable GPS or set a start point.')
+      return
+    }
+    setMobilePanelSnap('plan')
+    await calcRoutes(from, destination)
+  }, [destination, origin, userLocation]) // eslint-disable-line
 
   const handleDestinationClear = () => {
     setDestination(null)
@@ -162,7 +174,7 @@ export default function App() {
 
   const handleRouteSelect = useCallback((index) => {
     setSelectedRouteIndex(index)
-    setMobilePanelSnap('hidden')
+    setMobilePanelSnap('routes')
     const safety = safetyScores[index]
     if (safety?.safetyClass === 'unsafe' && !safety?.isRecommended) {
       setUnsafeDetailIndex(index)
@@ -217,7 +229,7 @@ export default function App() {
   const beginNavigation = () => {
     setShowRouteOverview(false)
     setUnsafeDetailIndex(null)
-    setMobilePanelSnap('hidden')
+    setMobilePanelSnap('peek')   // hide sheet during navigation
     setShowUnsafeConfirm(false)
     setIsNavigating(true)
   }
@@ -254,7 +266,7 @@ export default function App() {
     setIsNavigating(false)
     setShowRouteOverview(false)
     setActiveAlert(null)
-    setMobilePanelSnap('hidden')
+    setMobilePanelSnap('routes')
   }
 
   const handleRerouteToSafe = () => {
@@ -366,11 +378,11 @@ export default function App() {
 
   // ── Responsive (matchMedia — updates on resize & orientation) ─────────────
   const { isMobile, isDesktop, isCompact } = useBreakpoint()
-  useBodyScrollLock(isCompact && (mobilePanelSnap === 'half' || mobilePanelSnap === 'full'))
+  useBodyScrollLock(isCompact && mobilePanelSnap === 'full')
 
   const floatingControlsClass = isCompact
-    ? 'absolute right-3 flex flex-col gap-2 z-20 floating-controls-mobile'
-    : 'absolute top-4 right-4 flex flex-col gap-2 z-20'
+    ? 'absolute right-3 top-4 flex flex-col gap-2 z-[1020]'
+    : 'absolute top-4 right-4 flex flex-col gap-2 z-[1020]'
 
   // ── Floating controls component ───────────────────────────────────────────
   const FloatingControls = () => (
@@ -433,7 +445,7 @@ export default function App() {
       <AnimatePresence>
         {activeAlert && (
           <motion.div
-            className="absolute top-0 left-0 right-0 z-40 flex items-center gap-3 px-5 py-3.5 bg-danger"
+            className="absolute top-0 left-0 right-0 z-[1300] flex items-center gap-3 px-5 py-3.5 bg-danger"
             initial={{ y: -60 }} animate={{ y: 0 }} exit={{ y: -60 }}
             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
             style={{ paddingTop: 'max(env(safe-area-inset-top), 12px)' }}
@@ -449,7 +461,7 @@ export default function App() {
       <AnimatePresence>
         {isNavigating && !activeAlert && !isMobile && (
           <motion.div
-            className="absolute top-0 left-0 right-0 z-30 flex items-center gap-3 px-5 py-3"
+            className="absolute top-0 left-0 right-0 z-[1150] flex items-center gap-3 px-5 py-3"
             initial={{ y: -60 }} animate={{ y: 0 }} exit={{ y: -60 }}
             style={{
               background: isUnsafeRoute
@@ -509,8 +521,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Map */}
-        <div className={`flex-1 relative min-w-0 min-h-0 ${isNavigating ? 'nav-map-fullscreen' : ''}`}>
+        {/* Map — isolation:isolate keeps Leaflet's internal z-indices from competing with fixed UI overlays */}
+        <div className={`flex-1 relative min-w-0 min-h-0 isolate ${isNavigating ? 'nav-map-fullscreen' : ''}`}>
           <MapView
             userLocation={userLocation}
             origin={origin}
@@ -544,6 +556,7 @@ export default function App() {
                   etaSeconds={navigation.etaSeconds}
                   distanceRemaining={navigation.distanceRemaining}
                   destination={destination}
+                  currentStep={navigation.currentStep}
                   showOverview={showRouteOverview}
                   onToggleOverview={() => setShowRouteOverview(v => !v)}
                   onRecenter={navigation.requestRecenter}
@@ -666,6 +679,7 @@ export default function App() {
           onDestinationSelect={handleDestinationSelect}
           onDestinationClear={handleDestinationClear}
           onSwap={handleSwap}
+          onGenerateRoutes={handleGenerateRoutes}
           onRouteSelect={handleRouteSelect}
           onUnsafeDetail={handleRouteSelect}
           onStartJourney={handleStartJourney}
@@ -673,24 +687,6 @@ export default function App() {
         />
       )}
 
-      {isCompact && isNavigating && destination && (
-        <motion.button
-          type="button"
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="fixed z-[34] left-4 right-4 mx-auto max-w-sm rounded-full glass border border-white/15 px-4 py-2.5 flex items-center justify-center gap-2 touch-manipulation shadow-lg"
-          style={{ bottom: 'calc(200px + env(safe-area-inset-bottom))' }}
-          onClick={() => {
-            setIsNavigating(false)
-            setMobilePanelSnap('half')
-          }}
-        >
-          <span className="text-sm">🛣️</span>
-          <span className="text-white text-xs font-semibold truncate">
-            Edit route · {destination.name}
-          </span>
-        </motion.button>
-      )}
 
       {/* ── Modals ────────────────────────────────────────────────────────── */}
       <ReportModal
